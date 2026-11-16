@@ -3,6 +3,7 @@ package me.suprun.core.tasks;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 public final class TaskService {
@@ -11,10 +12,11 @@ public final class TaskService {
     private long nextId;
 
     public TaskService(TaskRepository repository) {
-        this.repository = repository;
-        this.tasks = new ArrayList<>(repository.load());
+        this.repository = Objects.requireNonNull(repository, "Сховище завдань не може бути null.");
+        List<Task> loaded = Objects.requireNonNull(repository.load(), "Сховище повернуло null замість списку завдань.");
+        this.tasks = new ArrayList<>(loaded);
         validateLoadedTasks(tasks);
-        this.nextId = tasks.stream().mapToLong(Task::id).max().orElse(0L) + 1L;
+        this.nextId = calculateNextId(tasks);
     }
 
     public List<Task> findAll() {
@@ -29,11 +31,13 @@ public final class TaskService {
     }
 
     public Task create(String title, String description) {
-        Task task = new Task(nextId, title, description, false);
+        long id = nextId;
+        long followingId = Math.incrementExact(id);
+        Task task = new Task(id, title, description, false);
         List<Task> updated = new ArrayList<>(tasks);
         updated.add(task);
         saveAndReplace(updated);
-        nextId++;
+        nextId = followingId;
         return task;
     }
 
@@ -72,9 +76,21 @@ public final class TaskService {
         tasks = updated;
     }
 
+    private static long calculateNextId(List<Task> loaded) {
+        long maxId = loaded.stream().mapToLong(Task::id).max().orElse(0L);
+        try {
+            return Math.incrementExact(maxId);
+        } catch (ArithmeticException exception) {
+            throw new IllegalStateException("Не вдалося визначити наступний номер завдання.", exception);
+        }
+    }
+
     private void validateLoadedTasks(List<Task> loaded) {
         Set<Long> ids = new HashSet<>();
         for (Task task : loaded) {
+            if (task == null) {
+                throw new IllegalStateException("У файлі збереження є порожній запис завдання.");
+            }
             if (!ids.add(task.id())) {
                 throw new IllegalStateException("У файлі збереження є повторюваний номер завдання: " + task.id());
             }
