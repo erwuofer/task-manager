@@ -12,8 +12,10 @@ import java.io.UncheckedIOException;
 import java.io.Writer;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 
 public final class JsonTaskRepository implements TaskRepository {
@@ -42,18 +44,55 @@ public final class JsonTaskRepository implements TaskRepository {
 
     @Override
     public void save(List<Task> tasks) {
-        Path parent = file.getParent();
+        Path absoluteFile = file.toAbsolutePath();
+        Path parent = absoluteFile.getParent();
+        String prefix = absoluteFile.getFileName().toString();
+        if (prefix.length() < 3) {
+            prefix = (prefix + "___").substring(0, 3);
+        }
 
+        Path temporaryFile = null;
         try {
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
+            Files.createDirectories(parent);
+            temporaryFile = Files.createTempFile(parent, prefix, ".tmp");
 
-            try (Writer writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
+            try (Writer writer = Files.newBufferedWriter(temporaryFile, StandardCharsets.UTF_8)) {
                 gson.toJson(tasks, TASK_LIST_TYPE, writer);
             }
+
+            try {
+                Files.move(
+                        temporaryFile,
+                        absoluteFile,
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING
+                );
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(temporaryFile, absoluteFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+            temporaryFile = null;
         } catch (IOException exception) {
-            throw new UncheckedIOException("Не вдалося зберегти файл даних: " + file, exception);
+            UncheckedIOException failure = new UncheckedIOException(
+                    "Не вдалося зберегти файл даних: " + file,
+                    exception
+            );
+            deleteTemporaryFile(temporaryFile, failure);
+            throw failure;
+        } catch (RuntimeException exception) {
+            deleteTemporaryFile(temporaryFile, exception);
+            throw exception;
+        }
+    }
+
+    private static void deleteTemporaryFile(Path temporaryFile, Throwable failure) {
+        if (temporaryFile == null) {
+            return;
+        }
+
+        try {
+            Files.deleteIfExists(temporaryFile);
+        } catch (IOException exception) {
+            failure.addSuppressed(exception);
         }
     }
 }
