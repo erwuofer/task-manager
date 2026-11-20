@@ -12,11 +12,14 @@ import me.suprun.cli.commands.HelpCommand;
 import me.suprun.cli.commands.ListTasksCommand;
 import me.suprun.cli.commands.ShowTaskCommand;
 import me.suprun.core.tasks.TaskService;
+import me.suprun.gui.TaskWindow;
 import me.suprun.infra.data.JsonTaskRepository;
 import me.suprun.infra.display.ConsoleDisplay;
 import me.suprun.presenter.ConsolePresenter;
 import me.suprun.presenter.TaskPresenter;
 
+import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
 import java.nio.file.Path;
 
 public final class Main {
@@ -24,6 +27,11 @@ public final class Main {
     }
 
     public static void main(String[] args) {
+        if (args.length == 1 && args[0].equalsIgnoreCase("--gui")) {
+            launchGui();
+            return;
+        }
+
         ConsolePresenter console = new ConsolePresenter(new ConsoleDisplay());
         try {
             TaskMode mode = new ModeSelector().select(args, console);
@@ -35,6 +43,23 @@ public final class Main {
             String message = exception.getMessage();
             console.error(message == null || message.isBlank() ? "Не вдалося запустити програму." : message);
         }
+    }
+
+    private static void launchGui() {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                TaskService tasks = new TaskService(new JsonTaskRepository(Path.of("data", "tasks.json")));
+                new TaskWindow(tasks).show();
+            } catch (RuntimeException exception) {
+                String message = exception.getMessage();
+                JOptionPane.showMessageDialog(
+                        null,
+                        message == null || message.isBlank() ? "Не вдалося запустити програму." : message,
+                        "Помилка запуску",
+                        JOptionPane.ERROR_MESSAGE
+                );
+            }
+        });
     }
 
     static CommandRegistry createCommands(
